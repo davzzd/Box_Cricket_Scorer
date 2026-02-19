@@ -39,7 +39,6 @@ Built with a modern UI, player management, and live match tracking.
     ```env
     PORT=5000
     DATABASE_URL=postgresql://user:password@host/dbname
-    ADMIN_PASSCODE=2004
     CORS_ORIGIN=http://localhost:5173
     ```
 
