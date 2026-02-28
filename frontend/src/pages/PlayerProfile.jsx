@@ -111,9 +111,6 @@ const PlayerProfile = () => {
                         <Crosshair size={18} className="text-red-500" />
                         <h2 className="text-lg font-black uppercase italic tracking-wider text-gray-200">Bowling</h2>
                     </div>
-                    <div className="bg-red-900/20 px-3 py-1 rounded-full border border-red-700/30">
-                        <span className="text-xs font-bold text-red-400">Impact: {bowling.bowlingImpact}</span>
-                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

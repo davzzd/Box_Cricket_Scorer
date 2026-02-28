@@ -36,8 +36,9 @@ exports.getSeasonStats = async (req, res) => {
             if (!stats[id]) {
                 stats[id] = {
                     id, name, matches: 0, wins: 0, losses: 0,
-                    runs: 0, wickets: 0, dismissals: 0, catches: 0,
-                    netImpactScore: 0
+                    runs: 0, wickets: 0, dismissals: 0, catches: 0, runOuts: 0,
+                    impactRuns: 0, netImpactScore: 0,
+                    ballsBowled: 0, runsConceded: 0
                 };
             }
         };
@@ -111,20 +112,42 @@ exports.getSeasonStats = async (req, res) => {
             }
 
             // Bowler Wickets
-            if (ball.is_dismissal && ball.bowler_id && stats[ball.bowler_id]) {
-                stats[ball.bowler_id].wickets++;
+            if (ball.bowler_id && stats[ball.bowler_id]) {
+                const isWide = ball.is_wide;
+                const isNoBall = ball.is_no_ball;
+
+                // Add balls bowled
+                if (!isWide && !isNoBall) {
+                    stats[ball.bowler_id].ballsBowled++;
+                }
+
+                // Add runs conceded
+                let runsToConcede = ball.runs_taken > 0 ? (ball.wall_value || 0) + ball.runs_taken : 0;
+                if (isWide || isNoBall) runsToConcede += 2;
+                stats[ball.bowler_id].runsConceded += runsToConcede;
+
+                if (ball.is_dismissal) {
+                    stats[ball.bowler_id].wickets++;
+                }
             }
 
-            // Catches
-            if (ball.is_dismissal && ball.dismissal_type === 'catch' && ball.fielder_id && stats[ball.fielder_id]) {
-                stats[ball.fielder_id].catches++;
+            // Catches & Run Outs
+            if (ball.is_dismissal) {
+                if (ball.dismissal_type === 'catch' && ball.fielder_id && stats[ball.fielder_id]) {
+                    stats[ball.fielder_id].catches++;
+                }
+                if (ball.dismissal_type === 'run_out' && ball.fielder_id && stats[ball.fielder_id]) {
+                    stats[ball.fielder_id].runOuts++;
+                }
             }
         });
 
         // 3. Calculate Derived Stats
         Object.values(stats).forEach(p => {
-            p.netImpactScore = p.runs - (5 * p.dismissals) + (5 * p.wickets);
+            p.impactRuns = p.runs - (5 * p.dismissals);
+            p.netImpactScore = p.impactRuns + (5 * p.wickets) + (5 * p.runOuts) + (2 * p.catches) + (5 * p.wins);
             p.avgRuns = p.matches > 0 ? (p.runs / p.matches).toFixed(1) : 0;
+            p.runsConcededPerBall = p.ballsBowled > 0 ? (p.runsConceded / p.ballsBowled).toFixed(1) : '0.0';
         });
 
         // Sort
