@@ -18,7 +18,7 @@ const MatchDashboard = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { isScorer } = useAuth();
-    const { activeMatch, setMatch, submitBall, endOver, startOver, startInnings } = useMatchStore();
+    const { activeMatch, setMatch, submitBall, endOver, startOver, startInnings, undoEndOver } = useMatchStore();
     const [loading, setLoading] = useState(true);
     const [showAddPlayer, setShowAddPlayer] = useState(false);
     const [showSummary, setShowSummary] = useState(true);
@@ -49,6 +49,7 @@ const MatchDashboard = () => {
     // New Over State
     const [showStartOverModal, setShowStartOverModal] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
+    const [showEndOverConfirm, setShowEndOverConfirm] = useState(false);
 
     // Initialize state from existing match data if returning
     useEffect(() => {
@@ -173,12 +174,14 @@ const MatchDashboard = () => {
         // Ensure whoGotOut is set if dismissal
         let finalDismissedId = null;
         if (isDismissal) {
-            if (!whoGotOut) {
-                // Fallback if not set via modal? Should warn?
-                // Default to striker if simple format
+            if (dismissalType === 'Caught' || dismissalType === 'Out') {
+                // Caught/Out can only be the striker — always use current strikerId
                 finalDismissedId = strikerId;
-            } else {
+            } else if (whoGotOut) {
+                // Run Out — use the selected player
                 finalDismissedId = whoGotOut;
+            } else {
+                finalDismissedId = strikerId;
             }
         }
 
@@ -187,8 +190,8 @@ const MatchDashboard = () => {
             if (!type) return null;
             switch (type) {
                 case 'Caught': return 'catch';
+                case 'Out': return 'out';
                 case 'Run Out': return 'run_out';
-                case 'Hit Wicket': return 'hit_wicket';
                 default: return type.toLowerCase();
             }
         };
@@ -235,25 +238,16 @@ const MatchDashboard = () => {
             toast.error("No active match state found. Try refreshing.");
             return;
         }
+        // Show the in-app confirmation modal instead of window.confirm
+        setShowEndOverConfirm(true);
+    };
 
+    const confirmEndOver = async () => {
+        setShowEndOverConfirm(false);
+        const activeState = activeMatch.activeState;
         const currentInningsNum = activeState.innings;
         const currentOver = activeState.over_number;
         const oversLimit = currentInningsNum === 1 ? activeMatch.overs_team1 : activeMatch.overs_team2;
-
-
-        // Validation: Check for legal balls
-        const ballsInOver = activeMatch.balls ? activeMatch.balls.filter(b =>
-            b.innings === currentInningsNum &&
-            b.over_number === currentOver
-        ) : [];
-
-        const legalBallCount = ballsInOver.filter(b => !b.is_wide && !b.is_no_ball).length;
-
-        if (legalBallCount < 6) {
-            if (!window.confirm(`⚠️ WARNING: This over has only ${legalBallCount} legal balls (Standard is 6). End over anyway?`)) return;
-        } else {
-            if (!window.confirm("End the over?")) return;
-        }
 
         try {
             await endOver(id, currentOver, currentInningsNum);
@@ -275,6 +269,20 @@ const MatchDashboard = () => {
             }
         } catch (e) {
             toast.error("Failed to end over: " + e.message);
+        }
+    };
+
+    const handleUndoEndOver = async () => {
+        try {
+            await undoEndOver(id);
+            toast.success("End over undone!");
+            // Re-fetch match data
+            const URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const res = await fetch(`${URL}/api/matches/${id}`);
+            const data = await res.json();
+            setMatch(data);
+        } catch (e) {
+            toast.error(e.message);
         }
     };
 
@@ -546,7 +554,101 @@ const MatchDashboard = () => {
                     Innings {activeTab} Ball History
                 </h3>
                 <div className="space-y-2">
-                    {getGroupedOvers().map((over) => (
+                    {/* Current Over Visual Indicator (empty over with placeholder balls) */}
+                    {(() => {
+                        if (!activeMatch.activeState || activeMatch.activeState.status !== 'active') return null;
+                        if (activeMatch.activeState.innings !== activeTab) return null;
+                        const currentOverNum = activeMatch.activeState.over_number;
+                        const currentOverBalls = (activeMatch.balls || []).filter(b =>
+                            b.innings === activeTab && b.over_number === currentOverNum
+                        );
+                        // Show indicator if this over has fewer than 6 legal balls
+                        const legalBalls = currentOverBalls.filter(b => !b.is_wide && !b.is_no_ball).length;
+                        const isEmpty = currentOverBalls.length === 0;
+
+                        // Find bowler name for current over
+                        const currentBowler = activeMatch.players?.find(p => p.id === bowlerId);
+
+                        return (
+                            <div className={clsx(
+                                "bg-surface rounded-lg p-3 flex items-start border-2 relative overflow-hidden",
+                                isEmpty ? "border-blue-500/40 bg-blue-500/5" : "border-white/10"
+                            )}>
+                                {isEmpty && (
+                                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-blue-500/5 to-transparent pointer-events-none" />
+                                )}
+                                <div className="flex flex-col items-center mr-4 pt-1 w-8 relative z-10">
+                                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">Ov</span>
+                                    <span className="text-xl font-black text-text">{currentOverNum}</span>
+                                    {isEmpty && (
+                                        <span className="mt-1 text-[8px] font-black text-blue-400 uppercase tracking-wider bg-blue-500/20 px-1.5 py-0.5 rounded-full animate-pulse">
+                                            NEW
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex flex-col flex-1 relative z-10">
+                                    {currentBowler && (
+                                        <div className="flex flex-wrap items-center mb-1 gap-2">
+                                            <div className="text-[10px] font-bold text-gray-400 uppercase flex items-center">
+                                                <span className="w-1 h-1 bg-blue-500 rounded-full mr-1.5"></span>
+                                                {currentBowler.name}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex flex-wrap gap-2">
+                                        {/* Render recorded balls */}
+                                        {currentOverBalls.map((b) => {
+                                            const runComponent = b.runs_taken > 0 ? (b.wall_value + b.runs_taken) : 0;
+                                            const total = runComponent + (b.is_wide || b.is_no_ball ? 2 : 0) - (b.is_dismissal ? 5 : 0);
+                                            const isWicket = b.is_dismissal;
+                                            const isExtra = b.is_wide || b.is_no_ball;
+
+                                            return (
+                                                <button
+                                                    key={b.id}
+                                                    onClick={() => isScorer && setEditingBall(b)}
+                                                    className={clsx(
+                                                        "w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border-2 transition-all active:scale-90 shadow-sm",
+                                                        isWicket ? "bg-danger text-white border-danger" :
+                                                            isExtra ? "bg-secondary text-white border-secondary" :
+                                                                total >= 4 ? "bg-white/10 text-primary border-primary" :
+                                                                    "bg-background border-white/10 text-text hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    {isWicket ? 'W' : (isExtra ? (b.is_wide ? 'wd' : 'nb') : total)}
+                                                </button>
+                                            );
+                                        })}
+                                        {/* Empty placeholder circles for remaining balls */}
+                                        {Array.from({ length: Math.max(0, 6 - legalBalls) }).map((_, i) => (
+                                            <div
+                                                key={`empty-${i}`}
+                                                className="w-9 h-9 rounded-full border-2 border-dashed border-white/15 flex items-center justify-center"
+                                            >
+                                                <div className="w-1.5 h-1.5 rounded-full bg-white/10"></div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {isEmpty && !currentBowler && (
+                                        <button
+                                            onClick={() => setShowStartOverModal(true)}
+                                            className="mt-2 text-[10px] font-bold text-blue-400 uppercase tracking-wider hover:text-blue-300 transition-colors"
+                                        >
+                                            Set Lineup →
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {getGroupedOvers().filter(over => {
+                        // Don't duplicate the current active over (already shown above)
+                        if (activeMatch.activeState && activeMatch.activeState.status === 'active' && activeMatch.activeState.innings === activeTab) {
+                            return over.overNumber != activeMatch.activeState.over_number;
+                        }
+                        return true;
+                    }).map((over) => (
                         <div key={over.overNumber} className="bg-surface rounded-lg p-3 flex items-start border border-white/5">
                             <div className="flex flex-col items-center mr-4 pt-1 w-8">
                                 <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">Ov</span>
@@ -594,7 +696,7 @@ const MatchDashboard = () => {
                             </div>
                         </div>
                     ))}
-                    {getGroupedOvers().length === 0 && (
+                    {getGroupedOvers().length === 0 && !activeMatch.activeState?.status === 'active' && (
                         <div className="text-secondary text-sm italic text-center py-8">No balls recorded in Innings {activeTab}.</div>
                     )}
                 </div>
@@ -602,9 +704,28 @@ const MatchDashboard = () => {
 
             {/* Floating Glass Settings Panel Container */}
             <div className="fixed bottom-4 left-4 right-4 z-40 max-w-lg mx-auto">
-                {/* Action Bar (End Over - Floating Above) */}
+                {/* Action Bar (End Over + Undo - Floating Above) */}
                 {activeMatch.status !== 'completed' && isScorer && (
-                    <div className="flex justify-end mb-2 mr-1">
+                    <div className="flex justify-end mb-2 mr-1 gap-2">
+                        {/* Undo End Over button - only show if current over has 0 balls and there's a previous completed over */}
+                        {(() => {
+                            if (!activeMatch.activeState || activeMatch.activeState.status !== 'active') return null;
+                            const currentOverNum = activeMatch.activeState.over_number;
+                            const currentOverBalls = (activeMatch.balls || []).filter(b =>
+                                b.innings === activeMatch.activeState.innings && b.over_number === currentOverNum
+                            );
+                            if (currentOverBalls.length === 0 && currentOverNum > 1) {
+                                return (
+                                    <button
+                                        onClick={handleUndoEndOver}
+                                        className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 text-[10px] uppercase font-bold px-3 py-1.5 rounded-full border border-yellow-500/30 flex items-center space-x-1 transition-all active:scale-95"
+                                    >
+                                        <span>↩ Undo</span>
+                                    </button>
+                                );
+                            }
+                            return null;
+                        })()}
                         <button
                             onClick={handleEndOver}
                             className="bg-red-500 hover:bg-red-600 text-white text-[10px] uppercase font-bold px-3 py-1.5 rounded-full shadow-lg shadow-red-500/30 flex items-center space-x-2 transition-all active:scale-95"
@@ -736,7 +857,7 @@ const MatchDashboard = () => {
                             <div>
                                 <label className="text-xs font-bold text-gray-500 uppercase block mb-3">Dismissal Type</label>
                                 <div className="flex flex-wrap gap-2">
-                                    {['Caught', 'Bowled', 'LBW', 'Run Out', 'Stumped', 'Hit Wicket'].map(type => (
+                                    {['Caught', 'Run Out', 'Out'].map(type => (
                                         <button
                                             key={type}
                                             onClick={() => {
@@ -759,10 +880,11 @@ const MatchDashboard = () => {
                                 </div>
                             </div>
 
-                            {/* Who Got Out? (Only relevant for Run Out usually, but allows manual override) */}
+
+                            {/* Who Got Out? (Run Out only) */}
                             {dismissalType === 'Run Out' && (
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase block mb-3">Who is Out? (Run Out)</label>
+                                    <label className="text-xs font-bold text-gray-500 uppercase block mb-3">Who is Out?</label>
                                     <div className="grid grid-cols-2 gap-3">
                                         <button
                                             onClick={() => setWhoGotOut(strikerId)}
@@ -782,14 +904,14 @@ const MatchDashboard = () => {
                                 </div>
                             )}
 
-                            {/* Fielder / Thrower Selection */}
-                            {(dismissalType === 'Caught' || dismissalType === 'Run Out' || dismissalType === 'Stumped') && (
+                            {/* Fielder Selection */}
+                            {(dismissalType === 'Caught' || dismissalType === 'Run Out') && (
                                 <div>
                                     <label className="text-xs font-bold text-gray-500 uppercase block mb-3">
                                         {dismissalType === 'Run Out' ? 'Who Threw?' : 'Fielder'}
                                     </label>
                                     <div className="grid grid-cols-3 gap-2">
-                                        {activeMatch.players && activeMatch.players.map(p => (
+                                        {activeMatch.players && activeMatch.players.filter(p => p.id !== strikerId && p.id !== nonStrikerId).map(p => (
                                             <button
                                                 key={p.id}
                                                 onClick={() => setFielderId(p.id)}
@@ -874,6 +996,7 @@ const MatchDashboard = () => {
             {activeMatch.status === 'completed' && showSummary && (
                 <MatchSummaryOverlay
                     matchId={id}
+                    matchData={activeMatch}
                     onClose={() => setShowSummary(false)}
                     onHome={() => navigate('/')}
                 />
@@ -916,6 +1039,77 @@ const MatchDashboard = () => {
                     }}
                 />
             )}
+
+            {/* End Over Confirmation Modal */}
+            {showEndOverConfirm && (() => {
+                const activeState = activeMatch.activeState;
+                const currentInningsNum = activeState?.innings;
+                const currentOver = activeState?.over_number;
+                const ballsInOver = activeMatch.balls ? activeMatch.balls.filter(b =>
+                    b.innings === currentInningsNum &&
+                    b.over_number === currentOver
+                ) : [];
+                const legalBallCount = ballsInOver.filter(b => !b.is_wide && !b.is_no_ball).length;
+                const isZeroBalls = legalBallCount === 0;
+                const isUnderSix = legalBallCount < 6;
+
+                return (
+                    <div className="fixed inset-0 bg-black/90 z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                        <div className={clsx(
+                            "w-full max-w-sm rounded-2xl p-6 border shadow-2xl",
+                            isZeroBalls
+                                ? "bg-red-950 border-red-500/50"
+                                : isUnderSix
+                                    ? "bg-yellow-950 border-yellow-500/30"
+                                    : "bg-gray-900 border-gray-700"
+                        )}>
+                            {isZeroBalls ? (
+                                <>
+                                    <div className="text-center mb-4">
+                                        <div className="text-5xl mb-3">⚠️</div>
+                                        <h3 className="text-xl font-black text-red-400 uppercase tracking-wider">No Balls Recorded!</h3>
+                                        <p className="text-red-300/70 text-sm mt-2">This over has <span className="text-white font-black text-lg">0</span> balls. Are you absolutely sure you want to end it?</p>
+                                    </div>
+                                    <p className="text-red-400/60 text-xs text-center mb-6 font-bold uppercase">This usually means someone pressed "End Over" by mistake</p>
+                                </>
+                            ) : isUnderSix ? (
+                                <>
+                                    <div className="text-center mb-4">
+                                        <div className="text-4xl mb-3">⚠️</div>
+                                        <h3 className="text-lg font-black text-yellow-400 uppercase">Under 6 Legal Balls</h3>
+                                        <p className="text-gray-300 text-sm mt-2">This over has only <span className="text-white font-black text-lg">{legalBallCount}</span> legal balls. End over anyway?</p>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="text-center mb-4">
+                                    <h3 className="text-lg font-black text-white uppercase mb-2">End Over {currentOver}?</h3>
+                                    <p className="text-gray-400 text-sm">{legalBallCount} legal balls recorded</p>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowEndOverConfirm(false)}
+                                    className="flex-1 bg-white/10 text-white font-bold py-3 rounded-xl hover:bg-white/20 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmEndOver}
+                                    className={clsx(
+                                        "flex-1 font-bold py-3 rounded-xl transition-colors shadow-lg",
+                                        isZeroBalls
+                                            ? "bg-red-600 hover:bg-red-500 text-white shadow-red-900/40"
+                                            : "bg-red-500 hover:bg-red-400 text-white shadow-red-900/20"
+                                    )}
+                                >
+                                    {isZeroBalls ? "Yes, End It" : "End Over"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 };

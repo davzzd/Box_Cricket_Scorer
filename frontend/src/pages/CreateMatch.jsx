@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { UserPlus, Users, ArrowRight, Check, Search, User } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { UserPlus, Users, ArrowRight, Check, Search, User, Shuffle } from 'lucide-react';
 import useMatchStore from '../store/useMatchStore';
 import clsx from 'clsx';
 
 const CreateMatch = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const createMatch = useMatchStore(state => state.createMatch);
 
     // Wizard State
@@ -27,6 +28,32 @@ const CreateMatch = () => {
     const [tossDecision, setTossDecision] = useState(''); // 'bat' or 'bowl'
 
     const [loading, setLoading] = useState(false);
+
+    // Handle pre-populated state from rematch
+    useEffect(() => {
+        if (location.state) {
+            const { players: prevPlayers, teamA: prevTeamA, teamB: prevTeamB, overs: prevOvers, mode } = location.state;
+
+            if (prevPlayers && prevPlayers.length > 0) {
+                setPlayers(prevPlayers);
+                if (prevOvers) setOvers(prevOvers);
+
+                if (mode === 'sameTeams' && prevTeamA && prevTeamB) {
+                    // Same teams - skip to step 2 (let user see teams, then go to step 3)
+                    setTeamA(prevTeamA);
+                    setTeamB(prevTeamB);
+                    setStep(2);
+                } else if (mode === 'randomize') {
+                    // Randomize teams
+                    const shuffled = [...prevPlayers].sort(() => Math.random() - 0.5);
+                    const half = Math.ceil(shuffled.length / 2);
+                    setTeamA(shuffled.slice(0, half));
+                    setTeamB(shuffled.slice(half));
+                    setStep(2);
+                }
+            }
+        }
+    }, []);
 
     // Fetch existing players on mount
     useEffect(() => {
@@ -86,6 +113,13 @@ const CreateMatch = () => {
             setTeamB(teamB.filter(p => p !== player));
             setTeamA([...teamA, player]);
         }
+    };
+
+    const shuffleTeams = () => {
+        const allPlayers = [...teamA, ...teamB].sort(() => Math.random() - 0.5);
+        const half = Math.ceil(allPlayers.length / 2);
+        setTeamA(allPlayers.slice(0, half));
+        setTeamB(allPlayers.slice(half));
     };
 
     const handleCreateMatch = async () => {
@@ -219,6 +253,15 @@ const CreateMatch = () => {
                 <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                     <h2 className="text-3xl font-black mb-1 text-white">Teams</h2>
                     <p className="text-gray-500 mb-6 font-mono text-xs uppercase">Tap to swap sides</p>
+
+                    {/* Shuffle Button */}
+                    <button
+                        onClick={shuffleTeams}
+                        className="w-full mb-4 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-400 font-bold py-3 rounded-xl flex items-center justify-center space-x-2 transition-all active:scale-95"
+                    >
+                        <Shuffle size={18} />
+                        <span className="text-sm uppercase tracking-wider">Randomize Teams</span>
+                    </button>
 
                     <div className="flex gap-4 mb-6">
                         <div className="flex-1 bg-gray-900/50 p-4 rounded-xl border border-blue-900/30">

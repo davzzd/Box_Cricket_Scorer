@@ -94,6 +94,18 @@ const useMatchStore = create((set, get) => ({
         if (!response.ok) throw new Error('Failed to start over');
     },
 
+    undoEndOver: async (matchId) => {
+        const URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${URL}/api/matches/${matchId}/undo-end-over`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to undo end over');
+        }
+    },
+
     startInnings: async (matchId, innings) => {
         const URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
         const response = await fetch(`${URL}/api/matches/${matchId}/start-innings`, {

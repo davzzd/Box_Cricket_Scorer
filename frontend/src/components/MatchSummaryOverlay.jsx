@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Trophy, Star, LogOut, X, Share2, Home } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
+import { Shuffle, RotateCcw } from 'lucide-react';
 
-const MatchSummaryOverlay = ({ matchId, onClose, onHome }) => {
+const MatchSummaryOverlay = ({ matchId, matchData, onClose, onHome }) => {
+    const navigate = useNavigate();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('i1');
@@ -153,6 +155,47 @@ const MatchSummaryOverlay = ({ matchId, onClose, onHome }) => {
 
                     {/* Actions */}
                     <div className="space-y-3">
+                        {/* Rematch Buttons */}
+                        {matchData && matchData.players && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => {
+                                        const teamAPlayers = matchData.players.filter(p => p.team === 'A').map(p => p.name);
+                                        const teamBPlayers = matchData.players.filter(p => p.team === 'B').map(p => p.name);
+                                        navigate('/create', {
+                                            state: {
+                                                players: [...teamAPlayers, ...teamBPlayers],
+                                                teamA: teamAPlayers,
+                                                teamB: teamBPlayers,
+                                                overs: matchData.overs || 6,
+                                                mode: 'sameTeams'
+                                            }
+                                        });
+                                    }}
+                                    className="bg-blue-600/20 border border-blue-500/30 text-blue-400 font-bold py-3 rounded-xl hover:bg-blue-600/30 transition-colors flex items-center justify-center space-x-2"
+                                >
+                                    <RotateCcw size={16} />
+                                    <span className="text-xs uppercase tracking-wider">Same Teams</span>
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const allPlayers = matchData.players.map(p => p.name);
+                                        navigate('/create', {
+                                            state: {
+                                                players: allPlayers,
+                                                overs: matchData.overs || 6,
+                                                mode: 'randomize'
+                                            }
+                                        });
+                                    }}
+                                    className="bg-purple-600/20 border border-purple-500/30 text-purple-400 font-bold py-3 rounded-xl hover:bg-purple-600/30 transition-colors flex items-center justify-center space-x-2"
+                                >
+                                    <Shuffle size={16} />
+                                    <span className="text-xs uppercase tracking-wider">Randomize</span>
+                                </button>
+                            </div>
+                        )}
+
                         <button
                             onClick={onHome}
                             className="w-full bg-white text-black font-black text-center py-4 rounded-xl shadow-xl hover:bg-gray-200 transition-colors flex items-center justify-center space-x-2"
