@@ -229,6 +229,62 @@ exports.endOver = async (req, res) => {
     }
 };
 
+exports.undoEndOver = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // 1. Find the current active over
+        const activeOverRes = await db.query(
+            `SELECT * FROM overs WHERE match_id = $1 AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
+            [id]
+        );
+
+        if (activeOverRes.rows.length === 0) {
+            return res.status(400).json({ error: 'No active over to undo.' });
+        }
+
+        const activeOver = activeOverRes.rows[0];
+
+        // 2. Check that the active over has 0 balls (safe to undo)
+        const ballsInOver = await db.query(
+            `SELECT count(*) FROM balls WHERE match_id = $1 AND innings = $2 AND over_number = $3`,
+            [id, activeOver.innings, activeOver.over_number]
+        );
+
+        if (parseInt(ballsInOver.rows[0].count) > 0) {
+            return res.status(400).json({ error: 'Cannot undo — balls have already been recorded in the current over.' });
+        }
+
+        // 3. Delete the empty active over
+        await db.query(
+            `DELETE FROM overs WHERE id = $1`,
+            [activeOver.id]
+        );
+
+        // 4. Re-activate the previous completed over
+        const prevOverRes = await db.query(
+            `SELECT * FROM overs WHERE match_id = $1 AND innings = $2 AND status = 'completed' ORDER BY over_number DESC LIMIT 1`,
+            [id, activeOver.innings]
+        );
+
+        if (prevOverRes.rows.length > 0) {
+            await db.query(
+                `UPDATE overs SET status = 'active' WHERE id = $1`,
+                [prevOverRes.rows[0].id]
+            );
+        }
+
+        // 5. Notify
+        const matchState = await scoringEngine.getMatchState(id);
+        req.io.emit('matchUpdated', { match_id: id, ...matchState });
+
+        res.json({ message: 'End over undone successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to undo end over' });
+    }
+};
+
 exports.startOver = async (req, res) => {
     const { id } = req.params;
     const { innings, over_number, bowler_id, striker_id, non_striker_id } = req.body;

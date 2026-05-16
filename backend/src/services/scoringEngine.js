@@ -179,15 +179,17 @@ const submitBall = async (req, res) => {
             nextNonStrikerId = striker_id;
         }
 
-        // If it was a dismissal, providing a "Who is new striker" API is complex here.
-        // For now, if dismissal, we might leave as is or set to NULL?
-        // User asked for "Run Out" details.
-        // If dismissal, we probably shouldn't auto-set the *next* striker blindly if the striker got out.
-        // But for "Odd Run" request, it's mostly for normal play.
-        // Let's apply swap logic. If someone got out, the frontend might override/prompt anyway.
-        // Actually, if it's a wicket, the `striker_id` persists as the one who WAS striker.
-        // The frontend detects `lastBall.is_dismissal` and prompts?
-        // Let's stick to "Auto-Swap on Odd Runs" for now. Catch edge cases later.
+        // Dismissal Strike Rotation:
+        // If the striker got out, swap strike (non-striker faces next ball).
+        // In box cricket there's no new batter — it's a -5 penalty and play continues.
+        if (is_dismissal && dismissed_player_id) {
+            if (dismissed_player_id === striker_id) {
+                // Striker is out → rotate strike
+                nextStrikerId = non_striker_id;
+                nextNonStrikerId = striker_id;
+            }
+            // If non-striker got out (run out), no swap needed — striker stays on strike
+        }
 
         await db.query(
             `UPDATE matches SET current_striker_id = $1, current_non_striker_id = $2, current_bowler_id = $3 WHERE id = $4`,

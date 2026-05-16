@@ -14,6 +14,7 @@ router.post('/:id/balls', (req, res) => scoringEngine.submitBall(req, res));
 router.put('/:match_id/balls/:id', (req, res) => scoringEngine.updateBall(req, res));
 router.delete('/:match_id/balls/:id', (req, res) => scoringEngine.deleteBall(req, res));
 router.post('/:id/end-over', matchController.endOver);
+router.post('/:id/undo-end-over', matchController.undoEndOver);
 router.post('/:id/start-over', matchController.startOver);
 router.post('/:id/start-innings', matchController.startInnings);
 router.post('/:id/complete', matchController.completeMatch);
